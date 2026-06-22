@@ -29,25 +29,34 @@ jobs:
 
       - name: Locate Kernel and Toolchain
         run: |
+          set -x
+          echo "=== top-level ==="
+          ls sdk/
+
+          echo "=== staging_dir ==="
+          ls sdk/staging_dir/ 2>/dev/null || echo "(empty)"
+
+          echo "=== build_dir ==="
+          ls sdk/build_dir/ 2>/dev/null || echo "(empty)"
+
           KERNEL_DIR=$(find sdk/build_dir -maxdepth 6 -type d -name "linux-*" 2>/dev/null | head -1)
           echo "KERNEL_DIR=$KERNEL_DIR"
-          ls "$KERNEL_DIR/Makefile" || { echo "ERROR: not a kernel tree"; exit 1; }
+          test -f "$KERNEL_DIR/Makefile" || { echo "ERROR: kernel Makefile not found"; exit 1; }
 
           TOOLCHAIN_DIR=$(find sdk/staging_dir -maxdepth 3 -type d -name "toolchain-*" 2>/dev/null | head -1)
           echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR"
+          test -d "$TOOLCHAIN_DIR/bin" || { echo "ERROR: toolchain bin not found"; exit 1; }
 
-          if ls "$TOOLCHAIN_DIR/bin/aarch64-openwrt-linux-musl-gcc" 2>/dev/null; then
-            CROSS="aarch64-openwrt-linux-musl-"
-          elif ls "$TOOLCHAIN_DIR/bin/aarch64-openwrt-linux-gcc" 2>/dev/null; then
-            CROSS="aarch64-openwrt-linux-"
-          else
-            CROSS=$(ls "$TOOLCHAIN_DIR/bin/" | grep -oP '.*(?=gcc$)' | head -1)
-          fi
+          echo "=== Available GCC ==="
+          ls "$TOOLCHAIN_DIR/bin/"*gcc 2>/dev/null | head -5
+
+          GCC=$(ls "$TOOLCHAIN_DIR/bin/"*gcc 2>/dev/null | head -1)
+          test -n "$GCC" || { echo "ERROR: no gcc found"; exit 1; }
+          CROSS=$(basename "$GCC" | sed 's/gcc$//')
           echo "CROSS_COMPILE=$CROSS"
-          [ -n "$CROSS" ] || { echo "ERROR: cannot determine CROSS_COMPILE"; exit 1; }
 
-          echo "=== Kernel config check ==="
-          grep -E "CONFIG_KPROBES=|CONFIG_KALLSYMS=|CONFIG_MODULES=" "$KERNEL_DIR/.config"
+          echo "=== Kernel config ==="
+          grep -E "^CONFIG_KPROBES=|^CONFIG_KALLSYMS=|^CONFIG_MODULES=" "$KERNEL_DIR/.config" || echo "(some missing)"
 
           echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
           echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
@@ -56,21 +65,27 @@ jobs:
       - name: Prepare Kernel
         run: |
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          ls "$KERNEL_DIR/scripts/basic/fixdep" 2>/dev/null && echo "fixdep OK" || echo "fixdep MISSING"
-          ls "$KERNEL_DIR/Module.symvers" 2>/dev/null && echo "symvers OK" || echo "symvers MISSING"
-          echo "=== modules_prepare ==="
-          make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" modules_prepare 2>&1 | tail -20
+          if [ ! -f "$KERNEL_DIR/scripts/basic/fixdep" ]; then
+            echo "=== Running modules_prepare (fixdep missing) ==="
+            make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" modules_prepare 2>&1 | tail -20
+          else
+            echo "Kernel tree already prepared (fixdep exists)"
+          fi
 
       - name: Compile Module
         run: |
           SRC_DIR="package/qmi_fix_skb/src"
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          echo "=== Source ==="
+
+          echo "=== Source Makefile ==="
           cat "$SRC_DIR/Makefile"
-          head -10 "$SRC_DIR/qmi_fix_skb.c"
-          echo "=== Compiling (V=1) ==="
-          make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" \
-            M="$(realpath "$SRC_DIR")" modules V=1 2>&1 | tee build.log
+
+          echo "=== Compiling ==="
+          make -C "$KERNEL_DIR" \
+            CROSS_COMPILE="$CROSS_COMPILE" \
+            ARCH="arm64" \
+            M="$(realpath "$SRC_DIR")" \
+            modules V=1 2>&1 | tee build.log
         continue-on-error: true
 
       - name: Analyze Build
@@ -79,7 +94,7 @@ jobs:
           grep -inE "error:|Error |fatal:" build.log | head -50 || echo "(none)"
           echo "=== WARNINGS ==="
           grep -inE "warning:" build.log | head -30 || echo "(none)"
-          echo "=== LAST 50 LINES ==="
+          echo "=== Last 50 lines ==="
           tail -50 build.log
 
           SRC_DIR="package/qmi_fix_skb/src"
@@ -91,7 +106,8 @@ jobs:
             strings qmi_fix_skb.ko | grep "vermagic"
             echo "MODULE_OK=1" >> $GITHUB_ENV
           else
-            echo "NOT FOUND"
+            echo "NOT FOUND - searching for .o files:"
+            find "$SRC_DIR" -name "*.o" -type f 2>/dev/null | head -10
             echo "MODULE_OK=0" >> $GITHUB_ENV
           fi
 
@@ -103,13 +119,7 @@ jobs:
               data = f.read()
           old = b'vermagic=6.6.93'
           new = b'vermagic=6.6.94'
-          count = data.count(old)
-          print(f'Found {count} occurrence(s) of {old}')
-          if count == 0:
-              import re
-              matches = list(re.finditer(rb'vermagic=.{5,40}', data))
-              for m in matches:
-                  print(f'Found vermagic: {m.group()}')
+          print(f'old vermagic count: {data.count(old)}')
           data = data.replace(old, new)
           with open('qmi_fix_skb.ko', 'wb') as f:
               f.write(data)
