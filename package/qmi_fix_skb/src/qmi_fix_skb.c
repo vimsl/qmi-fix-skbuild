@@ -66,8 +66,8 @@ static inline bool caller_is_qmi(struct pt_regs *regs)
 		if (!mod || strcmp(mod->name, TARGET_NAME))
 			return false;
 
-		qmi_text_start = (unsigned long)mod->core_layout.base;
-		qmi_text_end   = qmi_text_start + mod->core_layout.text_size;
+		qmi_text_start = (unsigned long)mod->mem[MOD_TEXT].base;
+		qmi_text_end   = qmi_text_start + mod->mem[MOD_TEXT].size;
 
 		pr_info("qmi_fix_skb: resolved %s .text [0x%lx - 0x%lx]\n",
 			TARGET_NAME, qmi_text_start, qmi_text_end);
