@@ -14,45 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq gcc-aarch64-linux-gnu linux-headers-generic
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu make
 
-      - name: Download kernel headers
+      - name: Download Linux kernel source
         run: |
-          # 使用ImmortalWrt的内核头文件
-          KERNEL_URL="https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic/"
-          # 下载内核包
-          curl -L --retry 3 -o kernel-headers.tar.xz "${KERNEL_URL}packages/aarch64_cortex-a53/kmod/5.10.234-1-*/linux kernel - 5.10.234-1-aarch64_cortex-a53-6.1a73f4440dd0f03d23e2e0f3b44a4450_aarch64_cortex-a53.ipk" 2>/dev/null || true
-          
-          # 备选：使用标准内核头文件
-          sudo apt-get install -y linux-headers-$(uname -r) || true
+          wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz" -O linux-src.tar.xz
+          tar -xf linux-src.tar.xz
+          cd linux-6.6.94
+          make defconfig
+          make modules_prepare
 
-      - name: Compile with standard kernel headers
+      - name: Compile kernel module
         run: |
-          # 尝试使用系统内核头文件编译
-          KERNEL_DIR="/lib/modules/$(uname -r)/build"
-          if [ ! -d "$KERNEL_DIR" ]; then
-            echo "System kernel headers not available, trying alternative..."
-            # 下载对应版本的内核源码
-            wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz" -O linux-src.tar.xz
-            tar -xf linux-src.tar.xz
-            cd linux-6.6.94
-            make defconfig
-            make modules_prepare
-            cd ..
-            KERNEL_DIR="$(pwd)/linux-6.6.94"
-          fi
-          
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               -C "$KERNEL_DIR" M=$(pwd) modules
+               -C $(pwd)/linux-6.6.94 M=$(pwd) modules
 
       - name: Verify module
         run: |
           file qmi_fix_skb.ko
           modinfo qmi_fix_skb.ko
-          echo "Module compiled successfully!"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
