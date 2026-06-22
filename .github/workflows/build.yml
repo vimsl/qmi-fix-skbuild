@@ -4,52 +4,85 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'qmi_fix_skb.c'
-      - 'Makefile'
+      - 'package/**'
       - '.github/workflows/build.yml'
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download ImmortalWrt SDK
+      - name: Install dependencies
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq zstd
-          SDK_URL="https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic/immortalwrt-sdk-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential flex bison gawk \
+            gettext libncurses-dev libssl-dev \
+            python3-distutils rsync unzip zlib1g-dev zstd file
+
+      - name: Download and Extract ImmortalWrt SDK
+        run: |
+          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.2/targets/mediatek/filogic/immortalwrt-sdk-24.10.2-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          echo "Downloading SDK from $SDK_URL"
           curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Prepare SDK and kernel
+      - name: Copy Package Source into SDK
         run: |
-          TERM=dumb make -C sdk defconfig 2>&1 | tail -5
-          KERNEL_DIR=sdk/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.18.34
-          if [ ! -d "$KERNEL_DIR" ]; then
-            echo "KERNEL_DIR not found, listing build_dir..."
-            find sdk/build_dir -maxdepth 3 -type d | sort | head -20
+          cp -r package/qmi_fix_skb sdk/package/
+
+      - name: Build Kernel Module
+        run: |
+          cd sdk
+          make defconfig
+          make package/qmi_fix_skb/compile V=s
+
+      - name: Locate and Verify Module
+        run: |
+          KO_FILE=$(find sdk/build_dir -name qmi_fix_skb.ko -type f | head -1)
+          if [ -z "$KO_FILE" ]; then
+            echo "ERROR: qmi_fix_skb.ko not found!"
+            find sdk -name "*.ko" -type f 2>/dev/null || true
             exit 1
           fi
-          echo "KERNEL_DIR=$KERNEL_DIR"
-          head -3 "$KERNEL_DIR/Makefile"
-
-      - name: Compile kernel module
-        run: |
-          KERNEL_DIR=sdk/build_dir/target-aarch64_cortex-a53_musl/linux-mediatek_filogic/linux-6.18.34
-          TOOLCHAIN=$(ls -d sdk/staging_dir/toolchain-*/bin/)
-          export PATH="$TOOLCHAIN:$PATH"
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-openwrt-linux-musl-
-          echo "=== running make modules ==="
-          make -C "$KERNEL_DIR" M=$GITHUB_WORKSPACE modules V=s
-
-      - name: Show result
-        run: |
+          echo "Module found: $KO_FILE"
+          cp "$KO_FILE" ./qmi_fix_skb.ko
           file qmi_fix_skb.ko
-          modinfo qmi_fix_skb.ko
+          modinfo qmi_fix_skb.ko || true
+          echo "---"
+          echo "Original vermagic:"
+          strings qmi_fix_skb.ko | grep "vermagic"
 
-      - name: Upload artifact
+      - name: Patch vermagic (6.6.93 -> 6.6.94)
+        run: |
+          # ImmortalWrt 24.10.2 SDK ships kernel 6.6.93, router runs 6.6.94
+          # Replace vermagic string to match router's running kernel
+          python3 -c "
+          import re
+          with open('qmi_fix_skb.ko', 'rb') as f:
+              data = f.read()
+          # Find and replace vermagic: 6.6.93 -> 6.6.94
+          old = b'vermagic=6.6.93'
+          new = b'vermagic=6.6.94'
+          count = data.count(old)
+          print(f'Found {count} occurrence(s) of {old}')
+          if count == 0:
+              # Try alternative patterns
+              import re
+              matches = list(re.finditer(rb'vermagic=.{5,30}', data))
+              for m in matches:
+                  print(f'Found vermagic: {m.group()}')
+          data = data.replace(old, new)
+          with open('qmi_fix_skb.ko', 'wb') as f:
+              f.write(data)
+          print('Patched vermagic 6.6.93 -> 6.6.94')
+          "
+          echo "---"
+          echo "Patched vermagic:"
+          strings qmi_fix_skb.ko | grep "vermagic"
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: qmi_fix_skb
