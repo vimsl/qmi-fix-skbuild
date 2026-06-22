@@ -22,6 +22,17 @@ jobs:
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
+      - name: Probe SDK structure
+        run: |
+          echo "=== SDK Makefile modules/kernel targets ==="
+          grep -n 'modules\|^[a-z_-]*:' sdk/Makefile | head -20 || true
+          echo "=== ls sdk/ ==="
+          ls sdk/
+          echo "=== ls sdk/build_dir/ ==="
+          ls sdk/build_dir/ 2>/dev/null || echo "no build_dir"
+          echo "=== ls sdk/staging_dir/ ==="
+          ls sdk/staging_dir/ 2>/dev/null || echo "no staging_dir"
+
       - name: Compile kernel module
         run: |
           make -C sdk defconfig
