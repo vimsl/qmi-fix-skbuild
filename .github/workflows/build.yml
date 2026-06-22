@@ -4,132 +4,73 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'qmi_fix_skb.c'
+      - 'Makefile'
       - 'package/**'
       - '.github/workflows/build.yml'
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq build-essential flex bison gawk \
-            gettext libncurses-dev libssl-dev \
-            python3-distutils rsync unzip zlib1g-dev zstd file
+          sudo apt-get install -y -qq zstd libelf-dev
 
-      - name: Download and Extract ImmortalWrt SDK
+      - name: Download ImmortalWrt SDK
         run: |
-          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.2/targets/mediatek/filogic/immortalwrt-sdk-24.10.2-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.0-rc1/targets/mediatek/filogic/immortalwrt-sdk-24.10.0-rc1-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
           curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Locate Kernel and Toolchain
+      - name: Prepare SDK
         run: |
-          set -x
-          echo "=== top-level ==="
-          ls sdk/
+          cd sdk
+          make defconfig
 
-          echo "=== staging_dir ==="
-          ls sdk/staging_dir/ 2>/dev/null || echo "(empty)"
-
-          echo "=== build_dir ==="
-          ls sdk/build_dir/ 2>/dev/null || echo "(empty)"
-
-          KERNEL_DIR=$(find sdk/build_dir -maxdepth 6 -type d -name "linux-*" 2>/dev/null | head -1)
-          echo "KERNEL_DIR=$KERNEL_DIR"
-          test -f "$KERNEL_DIR/Makefile" || { echo "ERROR: kernel Makefile not found"; exit 1; }
-
-          TOOLCHAIN_DIR=$(find sdk/staging_dir -maxdepth 3 -type d -name "toolchain-*" 2>/dev/null | head -1)
-          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR"
-          test -d "$TOOLCHAIN_DIR/bin" || { echo "ERROR: toolchain bin not found"; exit 1; }
-
-          echo "=== Available GCC ==="
-          ls "$TOOLCHAIN_DIR/bin/"*gcc 2>/dev/null | head -5
-
-          GCC=$(ls "$TOOLCHAIN_DIR/bin/"*gcc 2>/dev/null | head -1)
-          test -n "$GCC" || { echo "ERROR: no gcc found"; exit 1; }
-          CROSS=$(basename "$GCC" | sed 's/gcc$//')
-          echo "CROSS_COMPILE=$CROSS"
-
-          echo "=== Kernel config ==="
-          grep -E "^CONFIG_KPROBES=|^CONFIG_KALLSYMS=|^CONFIG_MODULES=" "$KERNEL_DIR/.config" || echo "(some missing)"
-
-          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
-          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=$CROSS" >> $GITHUB_ENV
-
-      - name: Prepare Kernel
+      - name: Copy package source
         run: |
-          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-          if [ ! -f "$KERNEL_DIR/scripts/basic/fixdep" ]; then
-            echo "=== Running modules_prepare (fixdep missing) ==="
-            make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" modules_prepare 2>&1 | tail -20
-          else
-            echo "Kernel tree already prepared (fixdep exists)"
+          cp -r package/qmi_fix_skb sdk/package/
+          ls -la sdk/package/qmi_fix_skb/src/
+
+      - name: Build kernel module
+        run: |
+          cd sdk
+          make package/qmi_fix_skb/compile V=s || true
+          
+          # 鎵惧埌缂栬瘧浜х墿
+          echo "=== Searching for qmi_fix_skb.ko ==="
+          find build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null
+          
+          # 濡傛灉娌℃壘鍒帮紝妫€鏌ョ紪璇戞棩蹇?          if [ ! -f "$(find build_dir -name 'qmi_fix_skb.ko' -type f 2>/dev/null | head -1)" ]; then
+            echo "=== Checking compile log ==="
+            cat logs/package/qmi_fix_skb/compile.txt 2>/dev/null | tail -50
+            echo "=== Searching for errors ==="
+            grep -iE "error|fatal|undefined" logs/package/qmi_fix_skb/compile.txt 2>/dev/null | head -20
           fi
 
-      - name: Compile Module
+      - name: Locate and copy .ko
         run: |
-          SRC_DIR="package/qmi_fix_skb/src"
-          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
-
-          echo "=== Source Makefile ==="
-          cat "$SRC_DIR/Makefile"
-
-          echo "=== Compiling ==="
-          make -C "$KERNEL_DIR" \
-            CROSS_COMPILE="$CROSS_COMPILE" \
-            ARCH="arm64" \
-            M="$(realpath "$SRC_DIR")" \
-            modules V=1 2>&1 | tee build.log
-        continue-on-error: true
-
-      - name: Analyze Build
-        run: |
-          echo "=== ERRORS ==="
-          grep -inE "error:|Error |fatal:" build.log | head -50 || echo "(none)"
-          echo "=== WARNINGS ==="
-          grep -inE "warning:" build.log | head -30 || echo "(none)"
-          echo "=== Last 50 lines ==="
-          tail -50 build.log
-
-          SRC_DIR="package/qmi_fix_skb/src"
-          KO=$(find "$SRC_DIR" -name "*.ko" -type f 2>/dev/null | head -1)
-          if [ -n "$KO" ]; then
-            echo "FOUND: $KO"
-            cp "$KO" ./qmi_fix_skb.ko
+          KO_FILE=$(find sdk/build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null | head -1)
+          if [ -n "$KO_FILE" ]; then
+            cp "$KO_FILE" ./qmi_fix_skb.ko
+            echo "=== Module info ==="
             file qmi_fix_skb.ko
-            strings qmi_fix_skb.ko | grep "vermagic"
-            echo "MODULE_OK=1" >> $GITHUB_ENV
+            modinfo qmi_fix_skb.ko
           else
-            echo "NOT FOUND - searching for .o files:"
-            find "$SRC_DIR" -name "*.o" -type f 2>/dev/null | head -10
-            echo "MODULE_OK=0" >> $GITHUB_ENV
+            echo "ERROR: qmi_fix_skb.ko not found!"
+            echo "=== Last 50 lines of compile log ==="
+            tail -50 sdk/logs/package/qmi_fix_skb/compile.txt 2>/dev/null
+            exit 1
           fi
 
-      - name: Patch vermagic
-        if: env.MODULE_OK == '1'
-        run: |
-          python3 -c "
-          with open('qmi_fix_skb.ko', 'rb') as f:
-              data = f.read()
-          old = b'vermagic=6.6.93'
-          new = b'vermagic=6.6.94'
-          print(f'old vermagic count: {data.count(old)}')
-          data = data.replace(old, new)
-          with open('qmi_fix_skb.ko', 'wb') as f:
-              f.write(data)
-          print('Patched.')
-          "
-          strings qmi_fix_skb.ko | grep "vermagic"
-
-      - name: Upload Artifact
-        if: env.MODULE_OK == '1'
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: qmi_fix_skb
           path: qmi_fix_skb.ko
