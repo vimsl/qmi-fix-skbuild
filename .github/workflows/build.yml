@@ -24,19 +24,29 @@ jobs:
 
       - name: Probe SDK structure
         run: |
-          echo "=== SDK Makefile modules/kernel targets ==="
-          grep -n 'modules\|^[a-z_-]*:' sdk/Makefile | head -20 || true
-          echo "=== ls sdk/ ==="
-          ls sdk/
-          echo "=== ls sdk/build_dir/ ==="
-          ls sdk/build_dir/ 2>/dev/null || echo "no build_dir"
-          echo "=== ls sdk/staging_dir/ ==="
-          ls sdk/staging_dir/ 2>/dev/null || echo "no staging_dir"
+          echo "=== ls sdk/build_dir/target-aarch64_cortex-a53_musl/ ==="
+          ls sdk/build_dir/target-aarch64_cortex-a53_musl/
+          echo "=== looking for kernel Makefile ==="
+          find sdk/build_dir -maxdepth 3 -name "Makefile" -exec grep -l "VERSION\|PATCHLEVEL" {} \; 2>/dev/null | head -5
+          echo "=== looking for linux dirs ==="
+          find sdk/build_dir -maxdepth 2 -type d -name "linux-*" 2>/dev/null | head -5
+          echo "=== ls staging_dir toolchain ==="
+          ls sdk/staging_dir/toolchain-aarch64_cortex-a53_gcc-14.3.0_musl/bin/ | head -5
 
       - name: Compile kernel module
         run: |
-          make -C sdk defconfig
-          make -C sdk M=$GITHUB_WORKSPACE modules V=s
+          KERNEL_DIR=$(find sdk/build_dir -maxdepth 2 -type d -name "linux-*" | head -1)
+          if [ -z "$KERNEL_DIR" ]; then
+            echo "ERROR: cannot find kernel source dir"
+            find sdk/build_dir -type d | sort | head -30
+            exit 1
+          fi
+          echo "KERNEL_DIR=$KERNEL_DIR"
+          TOOLCHAIN=$(ls -d sdk/staging_dir/toolchain-*/bin/)
+          export PATH="$TOOLCHAIN:$PATH"
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-openwrt-linux-musl-
+          make -C "$KERNEL_DIR" M=$GITHUB_WORKSPACE modules V=s
 
       - name: Show result
         run: |
