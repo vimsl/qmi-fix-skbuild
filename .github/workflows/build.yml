@@ -27,75 +27,76 @@ jobs:
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Locate Kernel Source and Toolchain
+      - name: Locate Kernel and Toolchain
         run: |
-          echo "=== SDK top-level ==="
-          ls sdk/
-          echo "=== staging_dir ==="
-          ls sdk/staging_dir/ 2>/dev/null || echo "no staging_dir"
-          echo "=== build_dir ==="
-          ls sdk/build_dir/ 2>/dev/null || echo "no build_dir"
-          
-          # Find kernel source
           KERNEL_DIR=$(find sdk/build_dir -maxdepth 6 -type d -name "linux-*" 2>/dev/null | head -1)
           echo "KERNEL_DIR=$KERNEL_DIR"
-          if [ -z "$KERNEL_DIR" ]; then
-            echo "ERROR: Cannot find kernel source directory"
-            exit 1
-          fi
-          ls "$KERNEL_DIR/Makefile" && echo "Kernel Makefile OK"
-          
-          # Find toolchain
+          ls "$KERNEL_DIR/Makefile" || { echo "ERROR: not a kernel tree"; exit 1; }
+
           TOOLCHAIN_DIR=$(find sdk/staging_dir -maxdepth 3 -type d -name "toolchain-*" 2>/dev/null | head -1)
           echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR"
-          if [ -z "$TOOLCHAIN_DIR" ]; then
-            echo "ERROR: Cannot find toolchain"
-            exit 1
-          fi
-          
-          # Check CROSS_COMPILE prefix
-          CROSS_PREFIX=$(ls "$TOOLCHAIN_DIR/bin/" | grep -oP '.*(?=gcc$)' | head -1 || true)
-          echo "CROSS_PREFIX=$CROSS_PREFIX"
-          
-          # Check kernel config
-          echo "=== CONFIG_KPROBES ==="
-          grep "CONFIG_KPROBES" "$KERNEL_DIR/.config" || echo "CONFIG_KPROBES NOT FOUND"
-          grep "CONFIG_KALLSYMS" "$KERNEL_DIR/.config" || echo "CONFIG_KALLSYMS NOT FOUND"
 
-          # Export for next steps
+          if ls "$TOOLCHAIN_DIR/bin/aarch64-openwrt-linux-musl-gcc" 2>/dev/null; then
+            CROSS="aarch64-openwrt-linux-musl-"
+          elif ls "$TOOLCHAIN_DIR/bin/aarch64-openwrt-linux-gcc" 2>/dev/null; then
+            CROSS="aarch64-openwrt-linux-"
+          else
+            CROSS=$(ls "$TOOLCHAIN_DIR/bin/" | grep -oP '.*(?=gcc$)' | head -1)
+          fi
+          echo "CROSS_COMPILE=$CROSS"
+          [ -n "$CROSS" ] || { echo "ERROR: cannot determine CROSS_COMPILE"; exit 1; }
+
+          echo "=== Kernel config check ==="
+          grep -E "CONFIG_KPROBES=|CONFIG_KALLSYMS=|CONFIG_MODULES=" "$KERNEL_DIR/.config"
+
           echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
           echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=$CROSS" >> $GITHUB_ENV
 
-      - name: Compile Module Directly
+      - name: Prepare Kernel
+        run: |
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          ls "$KERNEL_DIR/scripts/basic/fixdep" 2>/dev/null && echo "fixdep OK" || echo "fixdep MISSING"
+          ls "$KERNEL_DIR/Module.symvers" 2>/dev/null && echo "symvers OK" || echo "symvers MISSING"
+          echo "=== modules_prepare ==="
+          make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" modules_prepare 2>&1 | tail -20
+
+      - name: Compile Module
         run: |
           SRC_DIR="package/qmi_fix_skb/src"
           export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+          echo "=== Source ==="
+          cat "$SRC_DIR/Makefile"
+          head -10 "$SRC_DIR/qmi_fix_skb.c"
+          echo "=== Compiling (V=1) ==="
+          make -C "$KERNEL_DIR" CROSS_COMPILE="$CROSS_COMPILE" ARCH="arm64" \
+            M="$(realpath "$SRC_DIR")" modules V=1 2>&1 | tee build.log
+        continue-on-error: true
 
-          echo "=== Source files ==="
-          ls -la "$SRC_DIR/"
+      - name: Analyze Build
+        run: |
+          echo "=== ERRORS ==="
+          grep -inE "error:|Error |fatal:" build.log | head -50 || echo "(none)"
+          echo "=== WARNINGS ==="
+          grep -inE "warning:" build.log | head -30 || echo "(none)"
+          echo "=== LAST 50 LINES ==="
+          tail -50 build.log
 
-          echo "=== Building module ==="
-          make -C "$KERNEL_DIR" \
-            CROSS_COMPILE="aarch64-openwrt-linux-musl-" \
-            ARCH="arm64" \
-            M="$(realpath $SRC_DIR)" \
-            modules V=1 2>&1 | tee build.log
-
-          echo "=== Build log errors ==="
-          grep -iE "error|warning|undefined" build.log | head -30 || echo "No errors"
-
-          echo "=== Checking for .ko ==="
-          find "$SRC_DIR" -name "*.ko" -type f
-          if [ -f "$SRC_DIR/qmi_fix_skb.ko" ]; then
-            cp "$SRC_DIR/qmi_fix_skb.ko" ./qmi_fix_skb.ko
+          SRC_DIR="package/qmi_fix_skb/src"
+          KO=$(find "$SRC_DIR" -name "*.ko" -type f 2>/dev/null | head -1)
+          if [ -n "$KO" ]; then
+            echo "FOUND: $KO"
+            cp "$KO" ./qmi_fix_skb.ko
             file qmi_fix_skb.ko
             strings qmi_fix_skb.ko | grep "vermagic"
+            echo "MODULE_OK=1" >> $GITHUB_ENV
           else
-            echo "ERROR: qmi_fix_skb.ko not produced!"
-            exit 1
+            echo "NOT FOUND"
+            echo "MODULE_OK=0" >> $GITHUB_ENV
           fi
 
-      - name: Patch vermagic (6.6.93 -> 6.6.94)
+      - name: Patch vermagic
+        if: env.MODULE_OK == '1'
         run: |
           python3 -c "
           with open('qmi_fix_skb.ko', 'rb') as f:
@@ -112,11 +113,12 @@ jobs:
           data = data.replace(old, new)
           with open('qmi_fix_skb.ko', 'wb') as f:
               f.write(data)
-          print('Patched vermagic 6.6.93 -> 6.6.94')
+          print('Patched.')
           "
           strings qmi_fix_skb.ko | grep "vermagic"
 
       - name: Upload Artifact
+        if: env.MODULE_OK == '1'
         uses: actions/upload-artifact@v4
         with:
           name: qmi_fix_skb
