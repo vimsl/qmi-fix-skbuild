@@ -25,7 +25,7 @@ jobs:
       - name: Compile kernel module
         run: |
           make -C sdk defconfig
-          make -C sdk M=$GITHUB_WORKSPACE modules
+          make -C sdk M=$GITHUB_WORKSPACE modules V=s
 
       - name: Show result
         run: |
