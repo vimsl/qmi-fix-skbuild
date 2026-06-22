@@ -1,5 +1,5 @@
 /*
- * qmi_fix_skb.c â€” Kprobe hotfix for qmi_wwan_f skb headroom bug
+ * qmi_fix_skb.c â€?Kprobe hotfix for qmi_wwan_f skb headroom bug
  *
  * Problem:
  *   qmi_wwan_f (Fibocom closed-source QMAP driver) calls __netdev_alloc_skb
@@ -9,7 +9,7 @@
  * Fix:
  *   Intercept __netdev_alloc_skb and __alloc_skb via kprobe.
  *   When the caller is qmi_wwan_f, add LL_MAX_HEADER to the requested size.
- *   Extra 176 bytes become tailroom headroom â†’ tailroom check passes.
+ *   Extra 176 bytes become tailroom headroom â†?tailroom check passes.
  *
  * Upstream reference:
  *   commit 2e4233870557 ("qmi_wwan: Increase headroom for QMAP SKBs")
@@ -34,7 +34,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marvis");
-MODULE_DESCRIPTION("Kprobe hotfix for qmi_wwan_f skb headroom deficiency");
+MODULE_DESCRIPTION("Kprobe hotfix for qmi_wwan_f skb headroom deficiency v2");
 
 #define LL_MAX_HEADER   176
 #define TARGET_NAME     "qmi_wwan_f"
