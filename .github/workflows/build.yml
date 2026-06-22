@@ -23,27 +23,33 @@ jobs:
       - name: Download and Extract ImmortalWrt SDK
         run: |
           SDK_URL="https://downloads.immortalwrt.org/releases/24.10.2/targets/mediatek/filogic/immortalwrt-sdk-24.10.2-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-          echo "Downloading SDK from $SDK_URL"
           curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Copy Package Source into SDK
+      - name: Copy Package and Enable in Config
         run: |
           cp -r package/qmi_fix_skb sdk/package/
+          cd sdk
+          make defconfig
+          # Enable our kmod in the config
+          echo "CONFIG_PACKAGE_kmod-qmi_fix_skb=m" >> .config
+          make defconfig
 
       - name: Build Kernel Module
         run: |
           cd sdk
-          make defconfig
-          make package/qmi_fix_skb/compile V=s
+          make package/qmi_fix_skb/compile V=s 2>&1 | tail -100
 
       - name: Locate and Verify Module
         run: |
-          KO_FILE=$(find sdk/build_dir -name qmi_fix_skb.ko -type f | head -1)
+          KO_FILE=$(find sdk -name qmi_fix_skb.ko -type f | head -1)
           if [ -z "$KO_FILE" ]; then
             echo "ERROR: qmi_fix_skb.ko not found!"
-            find sdk -name "*.ko" -type f 2>/dev/null || true
+            echo "Searching for any .ko files..."
+            find sdk -name "*.ko" -type f 2>/dev/null | head -20 || true
+            echo "Listing build_dir contents..."
+            find sdk/build_dir -maxdepth 4 -type d 2>/dev/null | head -30 || true
             exit 1
           fi
           echo "Module found: $KO_FILE"
@@ -56,21 +62,16 @@ jobs:
 
       - name: Patch vermagic (6.6.93 -> 6.6.94)
         run: |
-          # ImmortalWrt 24.10.2 SDK ships kernel 6.6.93, router runs 6.6.94
-          # Replace vermagic string to match router's running kernel
           python3 -c "
-          import re
           with open('qmi_fix_skb.ko', 'rb') as f:
               data = f.read()
-          # Find and replace vermagic: 6.6.93 -> 6.6.94
           old = b'vermagic=6.6.93'
           new = b'vermagic=6.6.94'
           count = data.count(old)
           print(f'Found {count} occurrence(s) of {old}')
           if count == 0:
-              # Try alternative patterns
               import re
-              matches = list(re.finditer(rb'vermagic=.{5,30}', data))
+              matches = list(re.finditer(rb'vermagic=.{5,40}', data))
               for m in matches:
                   print(f'Found vermagic: {m.group()}')
           data = data.replace(old, new)
