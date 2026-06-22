@@ -27,71 +27,73 @@ jobs:
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Inspect SDK Kernel Config
+      - name: Locate Kernel Source and Toolchain
         run: |
-          echo "=== SDK directory structure ==="
-          ls -la sdk/
-          echo "=== Kernel build dir ==="
-          KDIR=$(find sdk/build_dir -maxdepth 4 -type d -name "linux-*" 2>/dev/null | head -3)
-          echo "$KDIR"
-          echo "=== Checking CONFIG_KPROBES ==="
-          for d in $KDIR; do
-            if [ -f "$d/.config" ]; then
-              echo "--- $d/.config ---"
-              grep -E "CONFIG_KPROBES|CONFIG_KALLSYMS" "$d/.config" || echo "NOT FOUND"
-            fi
-          done
-          echo "=== LINUX_DIR in rules ==="
-          grep -r "LINUX_DIR" sdk/rules.mk 2>/dev/null | head -3 || true
-          grep -r "LINUX_DIR" sdk/include/ 2>/dev/null | head -3 || true
-
-      - name: Copy Package and Enable in Config
-        run: |
-          cp -r package/qmi_fix_skb sdk/package/
-          cd sdk
-          make defconfig
-          echo "CONFIG_PACKAGE_kmod-qmi_fix_skb=m" >> .config
-          make defconfig
-
-      - name: Build Kernel Module
-        run: |
-          cd sdk
-          make package/qmi_fix_skb/compile V=s 2>&1 | tee ../build.log
-        continue-on-error: true
-
-      - name: Analyze Build Log
-        run: |
-          echo "=== Build log errors/warnings ==="
-          grep -iE "error|warning|undefined|No rule|cannot|failed" build.log | head -50 || echo "No explicit errors found"
-          echo "=== Build log last 60 lines ==="
-          tail -60 build.log
-
-      - name: Locate Module
-        run: |
-          echo "=== Searching all .ko files ==="
-          find sdk -name "*.ko" -type f 2>/dev/null | head -30 || echo "No .ko found"
-          echo "=== Searching qmi_fix* anywhere ==="
-          find sdk -name "*qmi_fix*" -o -name "*qmi*fix*" 2>/dev/null | head -20 || echo "Nothing found"
-          echo "=== Build dir tree (maxdepth 6) ==="
-          find sdk/build_dir -maxdepth 6 -type d 2>/dev/null | head -40 || echo "No build_dir"
-          echo "=== Checking bin directory ==="
-          find sdk/bin -type f -name "*.ipk" 2>/dev/null | head -10 || echo "No .ipk found"
-          find sdk/bin -type f -name "*.ko" 2>/dev/null | head -10 || echo "No .ko in bin"
-
-          KO_FILE=$(find sdk -name qmi_fix_skb.ko -type f 2>/dev/null | head -1)
-          if [ -z "$KO_FILE" ]; then
-            echo "ERROR: qmi_fix_skb.ko not found!"
-            echo "Listing all .o files as fallback..."
-            find sdk -name "*.o" -path "*/qmi*" 2>/dev/null | head -10
+          echo "=== SDK top-level ==="
+          ls sdk/
+          echo "=== staging_dir ==="
+          ls sdk/staging_dir/ 2>/dev/null || echo "no staging_dir"
+          echo "=== build_dir ==="
+          ls sdk/build_dir/ 2>/dev/null || echo "no build_dir"
+          
+          # Find kernel source
+          KERNEL_DIR=$(find sdk/build_dir -maxdepth 6 -type d -name "linux-*" 2>/dev/null | head -1)
+          echo "KERNEL_DIR=$KERNEL_DIR"
+          if [ -z "$KERNEL_DIR" ]; then
+            echo "ERROR: Cannot find kernel source directory"
             exit 1
           fi
-          echo "Module found: $KO_FILE"
-          cp "$KO_FILE" ./qmi_fix_skb.ko
-          file qmi_fix_skb.ko
-          echo "Vermagic:"
-          strings qmi_fix_skb.ko | grep "vermagic"
-          echo "Modinfo:"
-          modinfo qmi_fix_skb.ko 2>/dev/null || strings qmi_fix_skb.ko | grep -E "depends|vermagic|license"
+          ls "$KERNEL_DIR/Makefile" && echo "Kernel Makefile OK"
+          
+          # Find toolchain
+          TOOLCHAIN_DIR=$(find sdk/staging_dir -maxdepth 3 -type d -name "toolchain-*" 2>/dev/null | head -1)
+          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR"
+          if [ -z "$TOOLCHAIN_DIR" ]; then
+            echo "ERROR: Cannot find toolchain"
+            exit 1
+          fi
+          
+          # Check CROSS_COMPILE prefix
+          CROSS_PREFIX=$(ls "$TOOLCHAIN_DIR/bin/" | grep -oP '.*(?=gcc$)' | head -1 || true)
+          echo "CROSS_PREFIX=$CROSS_PREFIX"
+          
+          # Check kernel config
+          echo "=== CONFIG_KPROBES ==="
+          grep "CONFIG_KPROBES" "$KERNEL_DIR/.config" || echo "CONFIG_KPROBES NOT FOUND"
+          grep "CONFIG_KALLSYMS" "$KERNEL_DIR/.config" || echo "CONFIG_KALLSYMS NOT FOUND"
+
+          # Export for next steps
+          echo "KERNEL_DIR=$KERNEL_DIR" >> $GITHUB_ENV
+          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
+
+      - name: Compile Module Directly
+        run: |
+          SRC_DIR="package/qmi_fix_skb/src"
+          export PATH="$TOOLCHAIN_DIR/bin:$PATH"
+
+          echo "=== Source files ==="
+          ls -la "$SRC_DIR/"
+
+          echo "=== Building module ==="
+          make -C "$KERNEL_DIR" \
+            CROSS_COMPILE="aarch64-openwrt-linux-musl-" \
+            ARCH="arm64" \
+            M="$(realpath $SRC_DIR)" \
+            modules V=1 2>&1 | tee build.log
+
+          echo "=== Build log errors ==="
+          grep -iE "error|warning|undefined" build.log | head -30 || echo "No errors"
+
+          echo "=== Checking for .ko ==="
+          find "$SRC_DIR" -name "*.ko" -type f
+          if [ -f "$SRC_DIR/qmi_fix_skb.ko" ]; then
+            cp "$SRC_DIR/qmi_fix_skb.ko" ./qmi_fix_skb.ko
+            file qmi_fix_skb.ko
+            strings qmi_fix_skb.ko | grep "vermagic"
+          else
+            echo "ERROR: qmi_fix_skb.ko not produced!"
+            exit 1
+          fi
 
       - name: Patch vermagic (6.6.93 -> 6.6.94)
         run: |
