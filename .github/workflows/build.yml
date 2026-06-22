@@ -16,8 +16,9 @@ jobs:
 
       - name: Download ImmortalWrt SDK
         run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq zstd
           SDK_URL="https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic/immortalwrt-sdk-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-          curl -L -o sdk.tar.zst "$SDK_URL"
+          curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
