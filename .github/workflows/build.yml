@@ -1,0 +1,37 @@
+name: Build qmi_fix_skb.ko
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'qmi_fix_skb.c'
+      - 'Makefile'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ImmortalWrt SDK
+        run: |
+          SDK_URL="https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/mediatek/filogic/immortalwrt-sdk-24.10-snapshot-r33916-176bc72593-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.xz"
+          curl -L -o sdk.tar.xz "$SDK_URL"
+          tar -xf sdk.tar.xz
+          mv immortalwrt-sdk-* sdk
+
+      - name: Compile kernel module
+        run: |
+          make -C sdk M=$GITHUB_WORKSPACE modules
+
+      - name: Show result
+        run: |
+          file qmi_fix_skb.ko
+          modinfo qmi_fix_skb.ko
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qmi_fix_skb
+          path: qmi_fix_skb.ko
