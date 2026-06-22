@@ -32,32 +32,36 @@ jobs:
           cp -r package/qmi_fix_skb sdk/package/
           cd sdk
           make defconfig
-          # Enable our kmod in the config
           echo "CONFIG_PACKAGE_kmod-qmi_fix_skb=m" >> .config
           make defconfig
 
       - name: Build Kernel Module
         run: |
           cd sdk
-          make package/qmi_fix_skb/compile V=s 2>&1 | tail -100
+          make package/qmi_fix_skb/compile V=s 2>&1 | tail -80
 
       - name: Locate and Verify Module
         run: |
-          KO_FILE=$(find sdk -name qmi_fix_skb.ko -type f | head -1)
+          echo "=== All .ko files ==="
+          find sdk -name "*.ko" -type f 2>/dev/null | head -30 || echo "No .ko found"
+          echo "=== Build dir structure ==="
+          find sdk/build_dir -maxdepth 5 -type d 2>/dev/null | head -30 || true
+          echo "=== Bin dir ==="
+          find sdk/bin -name "*.ko" -type f 2>/dev/null | head -20 || echo "No .ko in bin"
+          find sdk/bin -name "*.ipk" -type f 2>/dev/null | head -20 || echo "No .ipk in bin"
+          echo "=== Package build dir ==="
+          find sdk -path "*/qmi_fix*" -type f 2>/dev/null | head -20 || echo "No qmi_fix files"
+          
+          KO_FILE=$(find sdk -name qmi_fix_skb.ko -type f 2>/dev/null | head -1)
           if [ -z "$KO_FILE" ]; then
             echo "ERROR: qmi_fix_skb.ko not found!"
-            echo "Searching for any .ko files..."
-            find sdk -name "*.ko" -type f 2>/dev/null | head -20 || true
-            echo "Listing build_dir contents..."
-            find sdk/build_dir -maxdepth 4 -type d 2>/dev/null | head -30 || true
             exit 1
           fi
           echo "Module found: $KO_FILE"
           cp "$KO_FILE" ./qmi_fix_skb.ko
           file qmi_fix_skb.ko
-          modinfo qmi_fix_skb.ko || true
           echo "---"
-          echo "Original vermagic:"
+          echo "Vermagic:"
           strings qmi_fix_skb.ko | grep "vermagic"
 
       - name: Patch vermagic (6.6.93 -> 6.6.94)
@@ -79,8 +83,6 @@ jobs:
               f.write(data)
           print('Patched vermagic 6.6.93 -> 6.6.94')
           "
-          echo "---"
-          echo "Patched vermagic:"
           strings qmi_fix_skb.ko | grep "vermagic"
 
       - name: Upload Artifact
