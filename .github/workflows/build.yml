@@ -16,9 +16,9 @@ jobs:
 
       - name: Download ImmortalWrt SDK
         run: |
-          SDK_URL="https://downloads.immortalwrt.org/releases/24.10-SNAPSHOT/targets/mediatek/filogic/immortalwrt-sdk-24.10-snapshot-r33916-176bc72593-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.xz"
-          curl -L -o sdk.tar.xz "$SDK_URL"
-          tar -xf sdk.tar.xz
+          SDK_URL="https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic/immortalwrt-sdk-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+          curl -L -o sdk.tar.zst "$SDK_URL"
+          tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
       - name: Compile kernel module
