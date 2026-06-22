@@ -27,6 +27,24 @@ jobs:
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
+      - name: Inspect SDK Kernel Config
+        run: |
+          echo "=== SDK directory structure ==="
+          ls -la sdk/
+          echo "=== Kernel build dir ==="
+          KDIR=$(find sdk/build_dir -maxdepth 4 -type d -name "linux-*" 2>/dev/null | head -3)
+          echo "$KDIR"
+          echo "=== Checking CONFIG_KPROBES ==="
+          for d in $KDIR; do
+            if [ -f "$d/.config" ]; then
+              echo "--- $d/.config ---"
+              grep -E "CONFIG_KPROBES|CONFIG_KALLSYMS" "$d/.config" || echo "NOT FOUND"
+            fi
+          done
+          echo "=== LINUX_DIR in rules ==="
+          grep -r "LINUX_DIR" sdk/rules.mk 2>/dev/null | head -3 || true
+          grep -r "LINUX_DIR" sdk/include/ 2>/dev/null | head -3 || true
+
       - name: Copy Package and Enable in Config
         run: |
           cp -r package/qmi_fix_skb sdk/package/
@@ -38,31 +56,42 @@ jobs:
       - name: Build Kernel Module
         run: |
           cd sdk
-          make package/qmi_fix_skb/compile V=s 2>&1 | tail -80
+          make package/qmi_fix_skb/compile V=s 2>&1 | tee ../build.log
+        continue-on-error: true
 
-      - name: Locate and Verify Module
+      - name: Analyze Build Log
         run: |
-          echo "=== All .ko files ==="
+          echo "=== Build log errors/warnings ==="
+          grep -iE "error|warning|undefined|No rule|cannot|failed" build.log | head -50 || echo "No explicit errors found"
+          echo "=== Build log last 60 lines ==="
+          tail -60 build.log
+
+      - name: Locate Module
+        run: |
+          echo "=== Searching all .ko files ==="
           find sdk -name "*.ko" -type f 2>/dev/null | head -30 || echo "No .ko found"
-          echo "=== Build dir structure ==="
-          find sdk/build_dir -maxdepth 5 -type d 2>/dev/null | head -30 || true
-          echo "=== Bin dir ==="
-          find sdk/bin -name "*.ko" -type f 2>/dev/null | head -20 || echo "No .ko in bin"
-          find sdk/bin -name "*.ipk" -type f 2>/dev/null | head -20 || echo "No .ipk in bin"
-          echo "=== Package build dir ==="
-          find sdk -path "*/qmi_fix*" -type f 2>/dev/null | head -20 || echo "No qmi_fix files"
-          
+          echo "=== Searching qmi_fix* anywhere ==="
+          find sdk -name "*qmi_fix*" -o -name "*qmi*fix*" 2>/dev/null | head -20 || echo "Nothing found"
+          echo "=== Build dir tree (maxdepth 6) ==="
+          find sdk/build_dir -maxdepth 6 -type d 2>/dev/null | head -40 || echo "No build_dir"
+          echo "=== Checking bin directory ==="
+          find sdk/bin -type f -name "*.ipk" 2>/dev/null | head -10 || echo "No .ipk found"
+          find sdk/bin -type f -name "*.ko" 2>/dev/null | head -10 || echo "No .ko in bin"
+
           KO_FILE=$(find sdk -name qmi_fix_skb.ko -type f 2>/dev/null | head -1)
           if [ -z "$KO_FILE" ]; then
             echo "ERROR: qmi_fix_skb.ko not found!"
+            echo "Listing all .o files as fallback..."
+            find sdk -name "*.o" -path "*/qmi*" 2>/dev/null | head -10
             exit 1
           fi
           echo "Module found: $KO_FILE"
           cp "$KO_FILE" ./qmi_fix_skb.ko
           file qmi_fix_skb.ko
-          echo "---"
           echo "Vermagic:"
           strings qmi_fix_skb.ko | grep "vermagic"
+          echo "Modinfo:"
+          modinfo qmi_fix_skb.ko 2>/dev/null || strings qmi_fix_skb.ko | grep -E "depends|vermagic|license"
 
       - name: Patch vermagic (6.6.93 -> 6.6.94)
         run: |
