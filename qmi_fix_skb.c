@@ -1,5 +1,5 @@
 /*
- * qmi_fix_skb.c �?Kprobe hotfix for qmi_wwan_f skb headroom bug
+ * qmi_fix_skb.c - Kprobe hotfix for qmi_wwan_f skb headroom bug
  *
  * Problem:
  *   qmi_wwan_f (Fibocom closed-source QMAP driver) calls __netdev_alloc_skb
@@ -9,7 +9,7 @@
  * Fix:
  *   Intercept __netdev_alloc_skb and __alloc_skb via kprobe.
  *   When the caller is qmi_wwan_f, add LL_MAX_HEADER to the requested size.
- *   Extra 176 bytes become tailroom headroom �?tailroom check passes.
+ *   Extra 176 bytes become tailroom headroom so tailroom check passes.
  *
  * Upstream reference:
  *   commit 2e4233870557 ("qmi_wwan: Increase headroom for QMAP SKBs")
@@ -34,7 +34,7 @@
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Marvis");
-MODULE_DESCRIPTION("Kprobe hotfix for qmi_wwan_f skb headroom deficiency v2");
+MODULE_DESCRIPTION("Kprobe hotfix for qmi_wwan_f skb headroom deficiency");
 
 #define LL_MAX_HEADER   176
 #define TARGET_NAME     "qmi_wwan_f"
@@ -66,8 +66,8 @@ static inline bool caller_is_qmi(struct pt_regs *regs)
 		if (!mod || strcmp(mod->name, TARGET_NAME))
 			return false;
 
-		qmi_text_start = (unsigned long)mod->core_layout.base;
-		qmi_text_end   = qmi_text_start + mod->core_layout.text_size;
+		qmi_text_start = (unsigned long)mod->mem[MOD_TEXT].base;
+		qmi_text_end   = qmi_text_start + mod->mem[MOD_TEXT].size;
 
 		pr_info("qmi_fix_skb: resolved %s .text [0x%lx - 0x%lx]\n",
 			TARGET_NAME, qmi_text_start, qmi_text_end);
@@ -75,8 +75,8 @@ static inline bool caller_is_qmi(struct pt_regs *regs)
 	}
 }
 
-/* ── kprobe pre_handler: __netdev_alloc_skb ────────────────────── */
-/* __netdev_alloc_skb(dev, length, gfp)
+/* kprobe pre_handler: __netdev_alloc_skb
+ * __netdev_alloc_skb(dev, length, gfp)
  * ARM64:  x0=dev,  x1=length,  x2=gfp
  * Return: lr (x30) = address in caller after BL instruction
  */
@@ -90,8 +90,8 @@ static int fix_netdev_alloc_pre(struct kprobe *kp, struct pt_regs *regs)
 	return 0;
 }
 
-/* ── kprobe pre_handler: __alloc_skb ───────────────────────────── */
-/* __alloc_skb(size, gfp, flags, node)
+/* kprobe pre_handler: __alloc_skb
+ * __alloc_skb(size, gfp, flags, node)
  * ARM64:  x0=size,  x1=gfp,  x2=flags,  x3=node
  */
 static int fix_alloc_skb_pre(struct kprobe *kp, struct pt_regs *regs)
@@ -114,7 +114,7 @@ static struct kprobe kp_alloc_skb = {
 	.pre_handler = fix_alloc_skb_pre,
 };
 
-/* ── Module init/exit ──────────────────────────────────────────── */
+/* Module init/exit */
 
 static int __init qmi_fix_init(void)
 {
