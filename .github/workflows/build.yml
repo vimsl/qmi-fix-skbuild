@@ -35,23 +35,20 @@ jobs:
 
       - name: Compile kernel module
         run: |
-          KERNEL_DIR=$(find sdk/build_dir -maxdepth 2 -type d -name "linux-*" | head -1)
+          KERNEL_DIR=$(find sdk/build_dir -maxdepth 3 -type f -name "Makefile" -exec grep -l "VERSION\|PATCHLEVEL" {} \; 2>/dev/null | head -1 | xargs dirname)
           if [ -z "$KERNEL_DIR" ]; then
             echo "ERROR: cannot find kernel source dir"
-            find sdk/build_dir -type d | sort | head -30
+            find sdk/build_dir -maxdepth 3 -type d | sort | head -30
             exit 1
           fi
           echo "KERNEL_DIR=$KERNEL_DIR"
-          echo "=== kernel dir contents ==="
-          ls "$KERNEL_DIR/" | head -20
-          echo "=== kernel Makefile ==="
           head -5 "$KERNEL_DIR/Makefile"
           TOOLCHAIN=$(ls -d sdk/staging_dir/toolchain-*/bin/)
           export PATH="$TOOLCHAIN:$PATH"
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-openwrt-linux-musl-
           echo "=== running make prepare ==="
-          make -C "$KERNEL_DIR" prepare V=s
+          make -C "$KERNEL_DIR" prepare V=s 2>&1 | tail -20
           echo "=== running make modules ==="
           make -C "$KERNEL_DIR" M=$GITHUB_WORKSPACE modules V=s
 
