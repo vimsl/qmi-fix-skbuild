@@ -36,7 +36,7 @@ jobs:
 
       - name: Extract .ko from .ipk
         run: |
-          IPK=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" | head -1)
+          IPK=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" -type f | head -1)
           if [ -z "$IPK" ]; then
             echo "ERROR: .ipk not found"
             find sdk/bin -name "*.ipk" | head -5
@@ -45,7 +45,7 @@ jobs:
           echo "Found: $IPK"
           mkdir -p /tmp/extract
           cd /tmp/extract
-          tar -xzf "$IPK" || tar -xf "$IPK"
+          tar -xzf "$GITHUB_WORKSPACE/$IPK" || tar -xf "$GITHUB_WORKSPACE/$IPK"
           KO=$(find . -name "qmi_fix_skb.ko" | head -1)
           if [ -z "$KO" ]; then
             echo "ERROR: .ko not found in .ipk"
