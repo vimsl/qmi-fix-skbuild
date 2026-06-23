@@ -16,79 +16,50 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd libelf-dev
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd
 
       - name: Download ImmortalWrt SDK
         run: |
           SDK_URL="https://downloads.immortalwrt.org/releases/24.10.0-rc1/targets/mediatek/filogic/immortalwrt-sdk-24.10.0-rc1-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-          curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
+          curl -L --retry 3 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
       - name: Prepare SDK
-        run: |
-          cd sdk
-          export TERM=dumb
-          make defconfig || true
+        run: cd sdk && TERM=dumb make defconfig || true
 
-      - name: Copy package source
+      - name: Copy and build
         run: |
           cp -r package/qmi_fix_skb sdk/package/
-          ls -la sdk/package/qmi_fix_skb/src/
-
-      - name: Build kernel module
-        run: |
           cd sdk
-          make package/qmi_fix_skb/compile V=s || true
-          
-          # 鎵惧埌缂栬瘧浜х墿
-          echo "=== Searching for qmi_fix_skb.ko ==="
-          find build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null
-          
-          # 濡傛灉娌℃壘鍒帮紝妫€鏌ョ紪璇戞棩蹇?          if [ ! -f "$(find build_dir -name 'qmi_fix_skb.ko' -type f 2>/dev/null | head -1)" ]; then
-            echo "=== Checking compile log ==="
-            cat logs/package/qmi_fix_skb/compile.txt 2>/dev/null | tail -50
-            echo "=== Searching for errors ==="
-            grep -iE "error|fatal|undefined" logs/package/qmi_fix_skb/compile.txt 2>/dev/null | head -20
-          fi
+          make package/qmi_fix_skb/compile V=s
 
-      - name: Locate and copy .ko
+      - name: Extract .ko from .ipk
         run: |
-          # 鍏堝皾璇曠洿鎺ユ壘.ko鏂囦欢
-          KO_FILE=$(find sdk/build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null | head -1)
-          
-          # 濡傛灉娌℃壘鍒帮紝浠?ipk鍖呬腑鎻愬彇
-          if [ -z "$KO_FILE" ]; then
-            echo "=== Searching for .ipk package ==="
-            IPK_FILE=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" -type f 2>/dev/null | head -1)
-            if [ -n "$IPK_FILE" ]; then
-              echo "Found: $IPK_FILE"
-              mkdir -p /tmp/ipk_extract
-              cd /tmp/ipk_extract
-              tar -xzf "$IPK_FILE" || tar -xf "$IPK_FILE"
-              find . -name "qmi_fix_skb.ko" -type f
-              KO_FILE=$(find . -name "qmi_fix_skb.ko" -type f | head -1)
-              cd $GITHUB_WORKSPACE
-            fi
-          fi
-          
-          if [ -n "$KO_FILE" ]; then
-            cp "$KO_FILE" ./qmi_fix_skb.ko
-            echo "=== Module info ==="
-            file qmi_fix_skb.ko
-            modinfo qmi_fix_skb.ko 2>&1 | head -10 || true
-          else
-            echo "ERROR: qmi_fix_skb.ko not found!"
-            echo "=== Listing all .ipk files ==="
-            find sdk/bin -name "*.ipk" -type f 2>/dev/null
+          IPK=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" | head -1)
+          if [ -z "$IPK" ]; then
+            echo "ERROR: .ipk not found"
+            find sdk/bin -name "*.ipk" | head -5
             exit 1
           fi
+          echo "Found: $IPK"
+          mkdir -p /tmp/extract
+          cd /tmp/extract
+          tar -xzf "$IPK" || tar -xf "$IPK"
+          KO=$(find . -name "qmi_fix_skb.ko" | head -1)
+          if [ -z "$KO" ]; then
+            echo "ERROR: .ko not found in .ipk"
+            find . -type f | head -10
+            exit 1
+          fi
+          cp "$KO" "$GITHUB_WORKSPACE/qmi_fix_skb.ko"
+          cd "$GITHUB_WORKSPACE"
+          echo "=== SUCCESS ==="
+          file qmi_fix_skb.ko
+          modinfo qmi_fix_skb.ko 2>&1 | head -5
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
-        if: success()
         with:
           name: qmi_fix_skb
           path: qmi_fix_skb.ko
