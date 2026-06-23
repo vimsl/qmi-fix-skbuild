@@ -6,6 +6,7 @@ on:
     paths:
       - 'qmi_fix_skb.c'
       - 'Makefile'
+      - 'config-6.6.94.txt'
       - '.github/workflows/build.yml'
 
 jobs:
@@ -27,14 +28,7 @@ jobs:
           wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz" -O linux-src.tar.xz
           tar -xf linux-src.tar.xz
           cd linux-6.6.94
-          # 浣跨敤ARM64 defconfig
-          make ARCH=arm64 defconfig
-          # 鍚敤妯″潡缂栬瘧蹇呴渶鐨勯€夐」
-          scripts/config --enable CONFIG_MODULES
-          scripts/config --enable CONFIG_MODULE_UNLOAD
-          scripts/config --enable CONFIG_KPROBES
-          scripts/config --enable CONFIG_KALLSYMS
-          scripts/config --enable CONFIG_KALLSYMS_ALL
+          cp ../config-6.6.94.txt .config
           make ARCH=arm64 olddefconfig
           make ARCH=arm64 modules_prepare
 
