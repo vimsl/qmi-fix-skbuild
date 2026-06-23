@@ -27,8 +27,8 @@ jobs:
         run: |
           wget -q 'https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz' -O linux-src.tar.xz
           tar -xf linux-src.tar.xz
+          cp config-6.6.94.txt linux-6.6.94/.config
           cd linux-6.6.94
-          cp ../config-6.6.94.txt .config
           ./scripts/config -e KPROBES
           make ARCH=arm64 olddefconfig
           make ARCH=arm64 modules_prepare
