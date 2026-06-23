@@ -13,11 +13,6 @@
  *
  * Upstream reference:
  *   commit 2e4233870557 ("qmi_wwan: Increase headroom for QMAP SKBs")
- *   commit 61356088acdd ("qmi_wwan: Add support for QMAP padding")
- *
- * Compile:
- *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl- \
- *        -C $KERNEL_DIR M=$(pwd) modules
  *
  * Usage on router:
  *   insmod qmi_fix_skb.ko
@@ -29,6 +24,7 @@
 #include <linux/kernel.h>
 #include <linux/kprobes.h>
 #include <linux/skbuff.h>
+#include <linux/kallsyms.h>
 
 
 MODULE_LICENSE("GPL");
@@ -36,48 +32,44 @@ MODULE_AUTHOR("Marvis");
 MODULE_DESCRIPTION("Kprobe hotfix for qmi_wwan_f skb headroom deficiency");
 
 #define LL_MAX_HEADER   176
-#define TARGET_NAME     "qmi_wwan_f"
 
 static int fix_count;
 module_param_named(count, fix_count, int, 0444);
 MODULE_PARM_DESC(count, "Total fix applications");
 
-/* Cached qmi_wwan_f .text range for fast caller check.
- * Resolved lazily on first kprobe hit, using __module_text_address().
- * After resolution, handler only does a range comparison (single-cycle).
+/* Cached qmi_wwan_f init function address for fast caller check.
+ * Resolved lazily on first kprobe hit using kallsyms.
  */
-static unsigned long qmi_text_start, qmi_text_end;
+static unsigned long qmi_init_addr;
 
-/* Called on every kprobe hit. On first qmi_wwan_f call, resolves and caches
- * the module text range via __module_text_address(). Subsequent calls use
- * fast range comparison only.
+/* Check if caller is from qmi_wwan_f module.
+ * Strategy: resolve qmi_wwan_f's init function once, then check if caller
+ * is within a reasonable range (within 1MB of init).
  */
 static inline bool caller_is_qmi(struct pt_regs *regs)
 {
 	unsigned long caller = regs->regs[30]; /* ARM64 link register */
 
-	if (qmi_text_end != 0)
-		return caller >= qmi_text_start && caller < qmi_text_end;
+	if (qmi_init_addr != 0)
+		return (caller >= qmi_init_addr) && (caller < qmi_init_addr + 0x100000);
 
-	/* First hit: resolve qmi_wwan_f text range once */
+	/* First hit: try to resolve qmi_wwan_f init function */
 	{
-		struct module *mod = __module_text_address(caller);
-		if (!mod || strcmp(mod->name, TARGET_NAME))
-			return false;
-
-		qmi_text_start = (unsigned long)mod->mem[MOD_TEXT].base;
-		qmi_text_end   = qmi_text_start + mod->mem[MOD_TEXT].size;
-
-		pr_info("qmi_fix_skb: resolved %s .text [0x%lx - 0x%lx]\n",
-			TARGET_NAME, qmi_text_start, qmi_text_end);
-		return true;
+		unsigned long addr = kallsyms_lookup_name("qmi_wwan_f_probe");
+		if (addr == 0)
+			addr = kallsyms_lookup_name("qmi_wwan_probe");
+		if (addr != 0) {
+			qmi_init_addr = addr;
+			pr_info("qmi_fix_skb: resolved qmi_wwan_f at 0x%lx\n", addr);
+			return (caller >= addr) && (caller < addr + 0x100000);
+		}
+		return false;
 	}
 }
 
 /* kprobe pre_handler: __netdev_alloc_skb
  * __netdev_alloc_skb(dev, length, gfp)
  * ARM64:  x0=dev,  x1=length,  x2=gfp
- * Return: lr (x30) = address in caller after BL instruction
  */
 static int fix_netdev_alloc_pre(struct kprobe *kp, struct pt_regs *regs)
 {
@@ -132,7 +124,7 @@ static int __init qmi_fix_init(void)
 		return ret;
 	}
 
-	pr_info("qmi_fix_skb: installed (range resolved lazily on first hit)\n");
+	pr_info("qmi_fix_skb: installed (caller detection via kallsyms)\n");
 	return 0;
 }
 
