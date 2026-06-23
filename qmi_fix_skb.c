@@ -16,7 +16,7 @@
  *   commit 61356088acdd ("qmi_wwan: Add support for QMAP padding")
  *
  * Compile (cross-compile via OpenWrt SDK):
- *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl- \
+ *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl-
  *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6.6.94
  *        M=$(pwd) modules
  *
