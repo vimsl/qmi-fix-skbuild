@@ -18,46 +18,54 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq zstd kmod libelf-dev
+          sudo apt-get install -y -qq zstd libelf-dev
 
       - name: Download ImmortalWrt SDK
         run: |
-          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.2/targets/mediatek/filogic/immortalwrt-sdk-24.10.2-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
+          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.0-rc1/targets/mediatek/filogic/immortalwrt-sdk-24.10.0-rc1-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
           curl -L --retry 3 --retry-delay 10 -o sdk.tar.zst "$SDK_URL"
           tar --zstd -xf sdk.tar.zst
           mv immortalwrt-sdk-* sdk
 
-      - name: Copy package and compile
+      - name: Prepare SDK
         run: |
-          set -e
-          cp -r package/qmi_fix_skb sdk/package/
           cd sdk
-          make package/qmi_fix_skb/compile V=s 2>&1 | tee ../compile.log
-        continue-on-error: true
+          export TERM=dumb
+          make defconfig || true
 
-      - name: Diagnose build (if failed)
-        if: failure()
+      - name: Copy package source
         run: |
-          echo "=== Build errors ==="
-          grep -inE "error:|Error |fatal:" compile.log 2>/dev/null | head -50 || echo "(none)"
+          cp -r package/qmi_fix_skb sdk/package/
+          ls -la sdk/package/qmi_fix_skb/src/
 
-      - name: Locate module
+      - name: Build kernel module
         run: |
-          set -e
+          cd sdk
+          make package/qmi_fix_skb/compile V=s || true
+          
+          # 鎵惧埌缂栬瘧浜х墿
+          echo "=== Searching for qmi_fix_skb.ko ==="
+          find build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null
+          
+          # 濡傛灉娌℃壘鍒帮紝妫€鏌ョ紪璇戞棩蹇?          if [ ! -f "$(find build_dir -name 'qmi_fix_skb.ko' -type f 2>/dev/null | head -1)" ]; then
+            echo "=== Checking compile log ==="
+            cat logs/package/qmi_fix_skb/compile.txt 2>/dev/null | tail -50
+            echo "=== Searching for errors ==="
+            grep -iE "error|fatal|undefined" logs/package/qmi_fix_skb/compile.txt 2>/dev/null | head -20
+          fi
+
+      - name: Locate and copy .ko
+        run: |
           KO_FILE=$(find sdk/build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null | head -1)
           if [ -n "$KO_FILE" ]; then
             cp "$KO_FILE" ./qmi_fix_skb.ko
-            echo "Module copied: $KO_FILE"
-            echo "=== file ==="
-            file qmi_fix_skb.ko || true
-            echo "=== modinfo ==="
-            modinfo qmi_fix_skb.ko 2>&1 | head -10 || true
+            echo "=== Module info ==="
+            file qmi_fix_skb.ko
+            modinfo qmi_fix_skb.ko
           else
             echo "ERROR: qmi_fix_skb.ko not found!"
-            echo "=== searching build_dir ==="
-            find sdk/build_dir -name "*.ko" -type f 2>/dev/null | head -20
-            echo "=== searching sdk/bin ==="
-            find sdk/bin -name "*.ko" -type f 2>/dev/null | head -20
+            echo "=== Last 50 lines of compile log ==="
+            tail -50 sdk/logs/package/qmi_fix_skb/compile.txt 2>/dev/null
             exit 1
           fi
 
