@@ -83,3 +83,12 @@ jobs:
         with:
           name: qmi_fix_skb
           path: qmi_fix_skb.ko
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: qmi_fix_skb.ko
+          files: qmi_fix_skb.ko
+          prerelease: false
+          make_latest: true
