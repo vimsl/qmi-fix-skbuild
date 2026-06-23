@@ -21,7 +21,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq gcc-aarch64-linux-gnu make libelf-dev
-          aarch64-linux-gnu-gcc --version | head -1
 
       - name: Download kernel source and prepare config
         run: |
@@ -30,13 +29,13 @@ jobs:
           cd linux-6.6.94
           cp ../config-6.6.94.txt .config
           ./scripts/config -e KPROBES
-          make ARCH=arm64 olddefconfig
-          make ARCH=arm64 modules_prepare
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
       - name: Compile kernel module
         run: |
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               -C C:\Users\Administrator\AppData\Roaming\Tencent\Marvis\User\oAN1i2WVQAYjqH4Qva7V63V9Oz2Y\workspace\conv_19ec02b8b81_ca4534028728\temp/linux-6.6.94 M=C:\Users\Administrator\AppData\Roaming\Tencent\Marvis\User\oAN1i2WVQAYjqH4Qva7V63V9Oz2Y\workspace\conv_19ec02b8b81_ca4534028728\temp modules
+               -C linux-6.6.94 M=$GITHUB_WORKSPACE modules
 
       - name: Verify module
         run: |
