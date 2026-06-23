@@ -12,6 +12,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -92,3 +94,4 @@ jobs:
           files: qmi_fix_skb.ko
           prerelease: false
           make_latest: true
+          overwrite: true
