@@ -56,16 +56,33 @@ jobs:
 
       - name: Locate and copy .ko
         run: |
+          # 鍏堝皾璇曠洿鎺ユ壘.ko鏂囦欢
           KO_FILE=$(find sdk/build_dir -name "qmi_fix_skb.ko" -type f 2>/dev/null | head -1)
+          
+          # 濡傛灉娌℃壘鍒帮紝浠?ipk鍖呬腑鎻愬彇
+          if [ -z "$KO_FILE" ]; then
+            echo "=== Searching for .ipk package ==="
+            IPK_FILE=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" -type f 2>/dev/null | head -1)
+            if [ -n "$IPK_FILE" ]; then
+              echo "Found: $IPK_FILE"
+              mkdir -p /tmp/ipk_extract
+              cd /tmp/ipk_extract
+              tar -xzf "$IPK_FILE" || tar -xf "$IPK_FILE"
+              find . -name "qmi_fix_skb.ko" -type f
+              KO_FILE=$(find . -name "qmi_fix_skb.ko" -type f | head -1)
+              cd $GITHUB_WORKSPACE
+            fi
+          fi
+          
           if [ -n "$KO_FILE" ]; then
             cp "$KO_FILE" ./qmi_fix_skb.ko
             echo "=== Module info ==="
             file qmi_fix_skb.ko
-            modinfo qmi_fix_skb.ko
+            modinfo qmi_fix_skb.ko 2>&1 | head -10 || true
           else
             echo "ERROR: qmi_fix_skb.ko not found!"
-            echo "=== Last 50 lines of compile log ==="
-            tail -50 sdk/logs/package/qmi_fix_skb/compile.txt 2>/dev/null
+            echo "=== Listing all .ipk files ==="
+            find sdk/bin -name "*.ipk" -type f 2>/dev/null
             exit 1
           fi
 
