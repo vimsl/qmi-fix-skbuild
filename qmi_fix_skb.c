@@ -17,7 +17,7 @@
  *
  * Compile (cross-compile via OpenWrt SDK):
  *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl-
- *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6.6.94
+ *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6_6_94
  *        M=$(pwd) modules
  *
  * Usage on router:
