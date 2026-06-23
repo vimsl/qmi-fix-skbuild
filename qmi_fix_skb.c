@@ -15,10 +15,7 @@
  *   commit 2e4233870557 ("qmi_wwan: Increase headroom for QMAP SKBs")
  *   commit 61356088acdd ("qmi_wwan: Add support for QMAP padding")
  *
- * Compile (cross-compile via OpenWrt SDK):
- *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl-
- *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6_6_94
- *        M=$(pwd) modules
+ * Compile: see Makefile for cross-compile instructions
  *
  * Usage on router:
  *   insmod qmi_fix_skb.ko
