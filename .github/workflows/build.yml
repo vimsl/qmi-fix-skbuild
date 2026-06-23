@@ -27,6 +27,11 @@ jobs:
           tar -xf linux-src.tar.xz
           wget -q "https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/mediatek/filogic/config-6.6" -O linux-6.6.94/.config
           cd linux-6.6.94
+          # 纭繚CONFIG_MODULES鍚敤
+          echo "CONFIG_MODULES=y" >> .config
+          echo "CONFIG_KPROBES=y" >> .config
+          echo "CONFIG_KALLSYMS=y" >> .config
+          echo "CONFIG_KALLSYMS_ALL=y" >> .config
           make ARCH=arm64 olddefconfig
           make ARCH=arm64 modules_prepare
 
