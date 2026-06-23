@@ -6,7 +6,6 @@ on:
     paths:
       - 'qmi_fix_skb.c'
       - 'Makefile'
-      - 'package/**'
       - '.github/workflows/build.yml'
 
 jobs:
@@ -17,68 +16,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq zstd kmod
-
-      - name: Download ImmortalWrt SDK
+      - name: Install build tools
         run: |
-          SDK_URL="https://downloads.immortalwrt.org/releases/24.10.2/targets/mediatek/filogic/immortalwrt-sdk-24.10.2-mediatek-filogic_gcc-13.3.0_musl.Linux-x86_64.tar.zst"
-          curl -L --retry 3 -o sdk.tar.zst "$SDK_URL"
-          tar --zstd -xf sdk.tar.zst
-          mv immortalwrt-sdk-* sdk
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu make libelf-dev
 
-      - name: Prepare SDK
-        run: cd sdk && TERM=dumb make defconfig || true
-
-      - name: Copy and build
+      - name: Download kernel source and ImmortalWrt config
         run: |
-          cp -r package/qmi_fix_skb sdk/package/
-          cd sdk
-          make package/qmi_fix_skb/compile V=s
+          wget -q "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz" -O linux-src.tar.xz
+          tar -xf linux-src.tar.xz
+          wget -q "https://raw.githubusercontent.com/immortalwrt/immortalwrt/openwrt-24.10/target/linux/mediatek/filogic/config-6.6" -O linux-6.6.94/.config
+          cd linux-6.6.94
+          make ARCH=arm64 olddefconfig
+          make ARCH=arm64 modules_prepare
 
-      - name: Extract .ko
+      - name: Compile kernel module
         run: |
-          set -x
-          echo "=== sdk/bin layout ==="
-          find sdk/bin -maxdepth 4 -type d 2>/dev/null | head -20
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+               -C $(pwd)/linux-6.6.94 M=$(pwd) modules
 
-          echo "=== searching for ipk ==="
-          IPK=$(find sdk/bin -name "kmod-qmi_fix_skb*.ipk" -type f 2>/dev/null | head -1)
-          if [ -z "$IPK" ]; then
-            echo "Not found by first pattern, trying broader search..."
-            IPK=$(find sdk/bin -name "*.ipk" -type f 2>/dev/null | head -5)
-            echo "All .ipk files: $IPK"
-          fi
-
-          if [ -z "$IPK" ]; then
-            echo "ERROR: .ipk not found at all!"
-            echo "=== full sdk/bin listing ==="
-            ls -lR sdk/bin/ 2>/dev/null | head -40
-            exit 1
-          fi
-
-          IPK=$(echo "$IPK" | head -1)
-          echo "Using: $IPK"
-          mkdir -p /tmp/extract
-          cd /tmp/extract
-          tar -xzf "$GITHUB_WORKSPACE/$IPK" 2>/dev/null || ar x "$GITHUB_WORKSPACE/$IPK" 2>/dev/null || (echo "== ipk inner =="; tar -tzf "$GITHUB_WORKSPACE/$IPK" 2>/dev/null | head -10; exit 1)
-          # data.tar.gz contains the actual files
-          if [ -f data.tar.gz ]; then
-            tar -xzf data.tar.gz
-          elif [ -f data.tar ]; then
-            tar -xf data.tar
-          fi
-          KO=$(find . -name "qmi_fix_skb.ko" 2>/dev/null | head -1)
-          if [ -z "$KO" ]; then
-            echo "ERROR: .ko not in ipk"
-            find . -type f 2>/dev/null | head -20
-            exit 1
-          fi
-
-          cp "$KO" "$GITHUB_WORKSPACE/qmi_fix_skb.ko"
-          echo "=== SUCCESS ==="
-          file "$GITHUB_WORKSPACE/qmi_fix_skb.ko"
-          modinfo "$GITHUB_WORKSPACE/qmi_fix_skb.ko" 2>&1 | head -10 || true
+      - name: Verify module
+        run: |
+          file qmi_fix_skb.ko
+          modinfo qmi_fix_skb.ko
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -86,12 +46,10 @@ jobs:
           name: qmi_fix_skb
           path: qmi_fix_skb.ko
 
-      - name: Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
-          name: qmi_fix_skb.ko
+          name: Latest Build
           files: qmi_fix_skb.ko
-          prerelease: false
-          make_latest: true
           overwrite: true
