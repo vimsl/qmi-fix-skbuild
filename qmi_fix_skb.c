@@ -1,4 +1,4 @@
-/*
+﻿/*
  * qmi_fix_skb.c - Kprobe hotfix for qmi_wwan_f skb headroom bug
  *
  * Problem:
@@ -17,12 +17,12 @@
  *
  * Compile (cross-compile via OpenWrt SDK):
  *   make ARCH=arm64 CROSS_COMPILE=aarch64-openwrt-linux-musl- \
- *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6.6.94 \
+ *        -C $STAGING_DIR/target-*/linux-mediatek_filogic/linux-6.6.94
  *        M=$(pwd) modules
  *
  * Usage on router:
  *   insmod qmi_fix_skb.ko
- *   cat /sys/module/qmi_fix_skb/parameters/count  # check fix count
+ *   cat /sys/module/qmi_fix_skb/parameters/count  -- check fix count
  *   dmesg | grep qmi_fix_skb
  */
 
@@ -67,7 +67,7 @@ static inline bool caller_is_qmi(struct pt_regs *regs)
 			return false;
 
 		qmi_text_start = (unsigned long)mod->core_layout.base;
-		qmi_text_end   = qmi_text_start + mod->core_layout.text_size;
+		qmi_text_end   = qmi_text_start + mod->core_layout.size;
 
 		pr_info("qmi_fix_skb: resolved %s .text [0x%lx - 0x%lx]\n",
 			TARGET_NAME, qmi_text_start, qmi_text_end);
