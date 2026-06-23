@@ -1,4 +1,4 @@
-﻿#
+?#
 # Automatically generated file; DO NOT EDIT.
 # Linux/arm64 6.6.94 Kernel Configuration
 #
@@ -542,7 +542,7 @@ CONFIG_CPU_MITIGATIONS=y
 #
 CONFIG_HOTPLUG_CORE_SYNC=y
 CONFIG_HOTPLUG_CORE_SYNC_DEAD=y
-# CONFIG_KPROBES is not set
+CONFIG_KPROBES=y
 CONFIG_JUMP_LABEL=y
 # CONFIG_STATIC_KEYS_SELFTEST is not set
 CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS=y
@@ -5314,3 +5314,4 @@ CONFIG_ARCH_USE_MEMTEST=y
 #
 # end of Rust hacking
 # end of Kernel hacking
+
