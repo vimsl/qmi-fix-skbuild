@@ -31,13 +31,13 @@ jobs:
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
-      - name: Build kernel modules to generate Module.symvers
+      - name: Build vmlinux to generate Module.symvers with vmlinux symbols
         run: |
-          KBUILD_MODPOST_WARN=1 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -C linux-6.6.94 modules
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- -j$(nproc) vmlinux
 
       - name: Compile kernel module
         run: |
-          KBUILD_MODPOST_WARN=1 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
                -C linux-6.6.94 M=$GITHUB_WORKSPACE modules
 
       - name: Verify module
