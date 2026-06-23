@@ -45,7 +45,14 @@ jobs:
           echo "Found: $IPK"
           mkdir -p /tmp/extract
           cd /tmp/extract
-          tar -xzf "$GITHUB_WORKSPACE/$IPK" || tar -xf "$GITHUB_WORKSPACE/$IPK"
+          # ipk is a gzipped tar, extract it first
+          tar -xzf "$GITHUB_WORKSPACE/$IPK"
+          # data.tar.gz contains the actual files
+          if [ -f data.tar.gz ]; then
+            tar -xzf data.tar.gz
+          elif [ -f data.tar ]; then
+            tar -xf data.tar
+          fi
           KO=$(find . -name "qmi_fix_skb.ko" | head -1)
           if [ -z "$KO" ]; then
             echo "ERROR: .ko not found in .ipk"
