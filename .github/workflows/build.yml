@@ -1,4 +1,4 @@
-name: Build qmi_fix_skb.ko
+﻿name: Build qmi_fix_skb.ko
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
     paths:
       - 'qmi_fix_skb.c'
       - 'Makefile'
-      - 'config-6.6.94.txt'
+      - 'config-6.6.148.txt'
       - '.github/workflows/build.yml'
 
 jobs:
@@ -24,17 +24,17 @@ jobs:
 
       - name: Download kernel source and prepare config
         run: |
-          wget -q 'https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.94.tar.xz' -O linux-src.tar.xz
+          wget -q 'https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.6.148.tar.xz' -O linux-src.tar.xz
           tar -xf linux-src.tar.xz
-          cd linux-6.6.94
-          cp ../config-6.6.94.txt .config
+          cd linux-6.6.148
+          cp ../config-6.6.148.txt .config
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- modules_prepare
 
       - name: Compile kernel module
         run: |
           KBUILD_MODPOST_WARN=1 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-               -C linux-6.6.94 M=$GITHUB_WORKSPACE modules
+               -C linux-6.6.148 M=$GITHUB_WORKSPACE modules
 
       - name: Verify module
         run: |
